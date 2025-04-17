@@ -1,6 +1,8 @@
 use std::alloc::{Layout,self};
-use std::ptr::NonNull;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::ptr::{self, NonNull};
+use std::sync::atomic::{self, AtomicI32, AtomicPtr, Ordering};
+use std::usize;
+use crossbeam::atomic::AtomicCell;
 
 /*
 Wait Free Vector:
@@ -20,42 +22,58 @@ Design Overview:
 
         resize ()
 */
-const TEST_CAP: usize = 10;
+const TEST_CAP: usize = 100;
 
 pub struct Vec<T>{
-    size: AtomicU32,
-    cap: AtomicU32,
+    size: AtomicI32,
+    cap: AtomicI32,
 
     //[NOTE]: don't know if this is going to work atm but Im testing faa without resize alg
-    ptr: NonNull<T>,
+    ptr: AtomicPtr<AtomicCell<T>>,
 }
 
-impl<T> Vec<T>{
-    //[NOTE]: currently defaults to size 10 with no resize 
-    pub fn new() -> Self{
-        assert!(std::mem::size_of::<T>() != 0, "cannot handle empty types");
+pub fn new<T>() -> Vec<T> {
+    assert!(std::mem::size_of::<T>() != 0, "cannot handle empty types");
         
-        let layout = Layout::array::<T>(TEST_CAP).unwrap();
-        let ptr_alloc = unsafe {alloc::alloc(layout)};
+    let layout = Layout::array::<AtomicCell<T>>(TEST_CAP).unwrap();
+    let ptr_alloc = unsafe {alloc::alloc(layout)};
 
-        Vec {
-            size: AtomicU32::new(0),
-            cap: AtomicU32::new(10),
-            ptr: match NonNull::new(ptr_alloc as *mut T){
-                Some(ptr) => ptr,
-                None => alloc::handle_alloc_error(layout),
-            },
-        }
+    Vec {
+        size: AtomicI32::new(0),
+        cap: AtomicI32::new(TEST_CAP as i32),
+        ptr: match NonNull::new(ptr_alloc as *mut AtomicCell<T>){
+            Some(ptr) =>AtomicPtr::new(ptr.as_ptr()),
+            None => alloc::handle_alloc_error(layout),
+        },
     }
+}
 
+// [WARNING]: if size is greater than a word it will not longer be wait fre
+impl<T: Copy> Vec<T>{   
     //[WARNING]: TEST NOT THREAD SAFE
     // not fully concurrent implementation as we need to implement logic for getSpot()
-    pub fn faa_push_back(&mut self, val: T){
+    pub fn faa_push_back(&self, val: T){
         let spot = self.size.fetch_add(1, Ordering::Relaxed);
-        
+        assert!(spot < self.cap.load(Ordering::Relaxed));
+
+        let z = unsafe{&*self.ptr.load(Ordering::Relaxed).add(spot as usize)};
+        z.store(val);    
     }
+
     pub fn push_back(){}
     pub fn pop_back(){}
+
+    pub fn faa_pop_back(&self) -> Option<T>{
+        let spot = self.size.fetch_sub(1, Ordering::Relaxed) - 1;
+        if spot < 0 {
+            self.size.fetch_add(1, Ordering::Relaxed);
+            return None
+        }
+
+        let val = unsafe{&*self.ptr.load(Ordering::Relaxed).add(spot as usize)}; 
+        return Some(val.load())
+    }
+
     pub fn read_at(){}
     pub fn write_at(){}
 

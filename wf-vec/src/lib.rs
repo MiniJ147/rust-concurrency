@@ -1,4 +1,4 @@
 mod wf_vec;
 
-pub use crate::wf_vec::Vec;
+pub use crate::wf_vec::new;
 
