@@ -76,7 +76,7 @@ impl<T: Copy> Vec<T>{
     pub fn faa_push_back(&self, val: T){
         let spot = self.size.fetch_add(1, Ordering::Relaxed);
         assert!(spot < self.cap.load(Ordering::Relaxed));
-        
+     
         let z = unsafe{&*self.ptr.load(Ordering::Relaxed).add(spot as usize)};
         z.store(val);    
     }

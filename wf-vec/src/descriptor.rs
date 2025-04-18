@@ -22,9 +22,9 @@ pub mod pop {
 
 // push logic
 pub mod push {
-    use std::ptr;
     use std::sync::atomic::AtomicU8; 
-    use crossbeam::atomic::AtomicCell;
+    use crate::wf_vec;
+
     use super::Descriptor;
 
     //states
@@ -32,27 +32,29 @@ pub mod push {
     const STATE_FAILED: u8 = 1;
     const STATE_PASSED: u8 = 2;
 
-    pub struct Desc<T>{
-        vec_ptr: ptr::NonNull<AtomicCell<T>>,
-        value: T,
-        pos: i32,
-        state: AtomicU8, // enum for type detection 
+    //a note on lifetimes
+    //allow us to say this object is valid while region a' is valid
+    //in our case a' is the vector 
+    //so as long as the vector stays in scope we can use this descriptor
+    pub struct Desc<'a, T>{
+        pub vec: &'a wf_vec::Vec<T>,
+        pub value: T,
+        pub pos: i32,
+        pub state: AtomicU8, // enum for type detection 
     }
 
     //NOTE &mut might cause issues so we could get rid of NonNull
-    pub fn new<T>(vec: *mut AtomicCell<T>, value: T, pos: i32) -> Desc<T> {
+    pub fn new<'a, T: Copy>(vec: &'a wf_vec::Vec<T>, value: T, pos: i32) -> Desc<T> {
         Desc{
-            vec_ptr: match ptr::NonNull::new(vec) {
-                Some(ptr) => ptr,
-                None => panic!("pointer passed in is not valid"),
-            },
+            vec,
             value,
             pos,
             state: AtomicU8::new(STATE_UNDECIDED),
         }
     }
 
-    impl <T>Descriptor for Desc<T> {
-        fn complete(&self){}
+    impl <'a, T: Copy>Descriptor for Desc<'a, T> {
+        fn complete(&self){
+        }
     }
 }
