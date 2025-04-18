@@ -4,6 +4,8 @@ use std::sync::atomic::{self, AtomicI32, AtomicPtr, Ordering};
 use std::usize;
 use crossbeam::atomic::AtomicCell;
 
+use crate::descriptor::{self, Descriptor};
+
 /*
 Wait Free Vector:
     Based on: An Efficient Wait-Free Vector
@@ -21,7 +23,27 @@ Design Overview:
         write_at (idx usize, val T)
 
         resize ()
+
+    we will reserve the 2 LSB in order for type detection and copied
+
+faa_pop_back and faa_push_back:
+    only one set of these functions can be called concurrently
+
+Descriptors:
+    in the paper they reserve the LSB for type detection, but I wonder if this will cause issues in rust
+    
+    Pop Descriptor - sub descriptor
+        functions: complete()
+
+    Push Descriptor - sub descriptor
+        functions: copmlete()
+
+
+A NOTE on Atomic Size:
+Only can support 30 bit types wait-free. This is because we are taking the 2 LSB bits and if the type is greater than 30 bits
+we will go over the word size for a 32-bit machine. If your word size is for 64-bit then you can support 62 bit types atomically.
 */
+
 const TEST_CAP: usize = 100;
 
 pub struct Vec<T>{
@@ -48,14 +70,13 @@ pub fn new<T>() -> Vec<T> {
     }
 }
 
-// [WARNING]: if size is greater than a word it will not longer be wait fre
 impl<T: Copy> Vec<T>{   
     //[WARNING]: TEST NOT THREAD SAFE
     // not fully concurrent implementation as we need to implement logic for getSpot()
     pub fn faa_push_back(&self, val: T){
         let spot = self.size.fetch_add(1, Ordering::Relaxed);
         assert!(spot < self.cap.load(Ordering::Relaxed));
-
+        
         let z = unsafe{&*self.ptr.load(Ordering::Relaxed).add(spot as usize)};
         z.store(val);    
     }
@@ -79,84 +100,3 @@ impl<T: Copy> Vec<T>{
 
     fn resize(){}
 }
-//old sequential tests
-//currently templating with a sequential vector then will move to concurrent 
-//first I have to understand how the sequential vectors are built in rust
-// use std::{mem, ptr};
-// use std::alloc::{self,Layout};
-// use std::ptr::NonNull;
-//
-// pub struct Vec<T> {
-//     ptr: NonNull<T>,
-//     cap: usize,
-//     len: usize
-// }
-//
-// impl<T> Vec<T> {
-//     pub fn new() -> Self {
-//         assert!(mem::size_of::<T>() != 0, "cannot handle empty data");
-//         Vec {
-//             ptr: NonNull::dangling(),
-//             len: 0,
-//             cap: 0,
-//         }
-//     }
-//     
-//     fn grow(&mut self) {
-//         //getting our cap and new layout
-//         let (new_cap, new_layout) = if self.cap == 0 {
-//             (1,Layout::array::<T>(1).unwrap())
-//         }else {
-//             let new_cap = 2 * self.cap; // grow our vector
-//             let new_layout = Layout::array::<T>(new_cap).unwrap();
-//
-//             (new_cap,new_layout)
-//         };
-//        
-//         //ensure we didn't overflow our alloc 
-//         assert!(new_layout.size() <= isize::MAX as usize, "Allocation overflow");
-//
-//         let new_ptr = if self.cap == 0 {
-//             // init our array
-//             unsafe { alloc::alloc(new_layout) }
-//         } else {
-//             // resizing our array
-//             let old_layout = Layout::array::<T>(self.cap).unwrap();
-//             let old_ptr = self.ptr.as_ptr() as *mut u8;
-//
-//             unsafe { alloc::realloc(old_ptr,old_layout,new_layout.size()) }
-//         };
-//
-//         // check if our new_ptr alloc failed 
-//         self.ptr = match NonNull::new(new_ptr as *mut T) {
-//             Some(ptr) => ptr,
-//             None => alloc::handle_alloc_error(new_layout),
-//         };
-//
-//         self.cap = new_cap;
-//     }
-//
-//     pub fn push_back(&mut self, val: T) {
-//         if self.len == self.cap {
-//             self.grow();
-//         }
-//
-//         unsafe {
-//             ptr::write(self.ptr.as_ptr().add(self.len), val);
-//         }
-//
-//         self.len += 1;
-//     }
-//
-//     pub fn read(self, idx: usize) -> T {
-//         assert!(idx < self.len, "out of bounds index");
-//         
-//         unsafe{ptr::read(self.ptr.as_ptr().add(idx))}
-//     }
-// }
-//
-// pub fn example(){
-//     print!("hello world!\n");
-// }
-//
-//
